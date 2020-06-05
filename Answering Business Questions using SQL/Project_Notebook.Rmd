@@ -1,0 +1,265 @@
+---
+title: "Guided Project: Answering Business Questions in SQL"
+author: "Mobin Anandwala"
+date:   "June 4, 2020"
+output: html_notebook
+---
+
+# Introduction
+This project will use the chinook database to answer business related questions
+The chinook database can be found [here](https://github.com/lerocha/chinook-database/tree/master/ChinookDatabase/DataSources)
+We will run queries based on the question being asked, create plots when needed and analyze the results of the plots and queries
+
+# Create helper functions
+As we will be running queries we will create two helper functions `run_query()` and `show_tables()`.  The `run_query()` function will run all SQL queries and the `show_tables()` function will show all tables and views in the database
+
+```{r}
+library(RSQLite)
+library(DBI)
+
+# store the database as db
+db <- 'chinook.db'
+
+run_query <- function(q) {
+  conn <- dbConnect(SQLite(), db)
+  result <- dbGetQuery(conn, q)
+  dbDisconnect(conn)
+  return(result)
+}
+
+show_tables <- function() {
+  q <-"SELECT name, type FROM sqlite_master WHERE type IN ('table','view')"
+return(run_query(q))
+}
+
+show_tables()
+```
+
+This shows that we have 10 tables and we can also show an example table
+```{r}
+
+run_query("SELECT * FROM artist")
+```
+
+# Albums to purchase
+We have been given a list of artists and the genres that they produce.  The artists are as follows:
+
+1. Regal 	Hip-Hop
+2. Red Tone 	Punk
+3. Meteor and the Girls 	Pop
+4. Slim Jim Bites 	Blues
+
+I am using a tool called DBeaver to look at the unmodified Chinook database.  The community edition can be obtained [here](https://dbeaver.io/)
+the invoice line table contains invoice id and the invoice id table contains customer id which is used in the customer table
+
+The genre table contains the name of the music genre and also the genre id which is in the track table as well
+
+We'll create a view with the WITH keyword so that we have usa sales only
+```{r}
+albums_query = '
+WITH usa_track_sales AS
+  (
+  SELECT il.* FROM invoice_line il
+  INNER JOIN invoice i on il.invoice_id = i.invoice_id
+  INNER JOIN customer c on i.customer_id = c.customer_id
+  WHERE c.country = "USA"
+  )
+SELECT
+  g.name genre,
+  count(uts.invoice_line_id) tracks_sold,
+  cast(count(uts.invoice_line_id) AS FLOAT) / (SELECT COUNT(*) from usa_track_sales) percentage_sold
+FROM usa_track_sales uts
+INNER JOIN track t on t.track_id = uts.track_id
+INNER JOIN genre g on g.genre_id = t.genre_id
+GROUP BY 1
+ORDER BY 2 DESC
+LIMIT 10;'
+
+run_query(albums_query)
+```
+```{r}
+library(ggplot2)
+genre_sales = run_query(albums_query)
+ggplot(data = genre_sales, aes(x = reorder(genre, -percentage_sold), y = percentage_sold)) +
+  geom_bar(stat = "identity") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+The [following](https://stackoverflow.com/questions/1330989/rotating-and-spacing-axis-labels-in-ggplot2) stackoverflow gives guidance on rotating labels (found via the goolge search of rotate labels ggplot2)
+
+Our top album genres are as follows:
+
+1. Rock
+2. Alternative and Punk
+3. Metal
+4. R and B/Soul
+5. Blues
+
+Therefore we should add the following bands
+-Red Tone (Punk)
+-Slim Jim Bites (Blues)
+-Meteor and the Girls (Pop)
+
+However, rock is the majority of sales and we should ask the record label about any up and coming rock bands
+
+# Analyzing Employee Sales performance
+We will use the customer table which contains the support_rep_id and and the employee table which ties in the employee id to the support_rep_id.  The total amount is from the total column in the invoice table
+
+```{r}
+employee_performance_sales = '
+WITH customer_support_rep_sales AS
+  (
+  SELECT
+    i.customer_id,
+    c.support_rep_id,
+    SUM(i.total) total
+  FROM invoice i
+  INNER JOIN customer c ON i.customer_id = c.customer_id
+  GROUP BY 1,2
+  )
+
+SELECT
+  e.first_name || " " || e.last_name employee,
+  e.hire_date,
+  SUM(csrs.total) total_sales
+FROM customer_support_rep_sales csrs
+INNER JOIN employee e ON e.employee_id = csrs.support_rep_id
+GROUP BY 1;
+'
+
+run_query(employee_performance_sales)
+```
+```{r}
+employee_sales = run_query(employee_performance_sales)
+ggplot(data = employee_sales, aes(x = reorder(employee, -total_sales), y = total_sales)) +
+  geom_bar(stat = "identity") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+Jane Peacock has the highest amount of sales, however, she has been at the company longer then the others.  To account for this we should standardize sales by days or hours worked.
+
+# Analyzing Sales by Country
+We will now write a query to analyze sales by country.  If there is a single count we will mark other in our view else we will use the country specified
+```{r}
+sales_by_country = '
+WITH country_or_other AS
+  (
+  SELECT
+    CASE
+      WHEN (
+            SELECT count(*)
+            FROM customer
+            WHERE country = c.country
+            ) = 1 THEN "Other"
+      ELSE c.country
+    END AS country,
+    c.customer_id,
+    il.*
+  FROM invoice_line il
+  INNER JOIN invoice i ON i.invoice_id = il.invoice_id
+  INNER JOIN customer c ON c.customer_id = i.customer_id
+  )
+SELECT
+  country,
+  customers,
+  total_sales,
+  average_order,
+  customer_lifetime_value
+FROM
+  (
+  SELECT
+        country,
+        count(distinct customer_id) customers,
+        SUM(unit_price) total_sales,
+        SUM(unit_price) / count(distinct customer_id) customer_lifetime_value,
+        SUM(unit_price) / count(distinct invoice_id) average_order,
+        CASE
+            WHEN country = "Other" THEN 1
+            ELSE 0
+        END AS sort
+  FROM country_or_other
+  GROUP BY country
+  ORDER BY sort ASC, total_sales DESC
+  );
+'
+
+run_query(sales_by_country)
+```
+
+#Visualizing Sales by Country
+Here we will take the dataframe that we generate in the section Analyzing Sales by country and generate graphs from them
+```{r}
+country_sales = run_query(sales_by_country)
+
+ggplot(data = country_sales, aes(x = reorder(country, -total_sales), y = total_sales, fill = country)) +
+  geom_bar(stat = "identity") +
+  coord_polar("y") +
+  labs(
+    title = "Number of customers by country",
+    x = "Country",
+    y = "Customers"
+  )
+
+ggplot(data = country_sales, aes(x = reorder(country, -customer_lifetime_value), y = customer_lifetime_value, color = country)) +
+  geom_point(stat = "identity") +
+  labs(
+    title = "Customer lifetime value by country",
+    x = "Country",
+    y = "Customer Lifetime Value"
+  ) + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+# Albums vs Individual Tracks
+```{r}
+albums_vs_tracks = '
+WITH invoice_first_track AS
+    (
+     SELECT
+         il.invoice_id invoice_id,
+         MIN(il.track_id) first_track_id
+     FROM invoice_line il
+     GROUP BY 1
+    )
+SELECT
+    album_purchase,
+    COUNT(invoice_id) number_of_invoices,
+    CAST(count(invoice_id) AS FLOAT) / (
+                                         SELECT COUNT(*) FROM invoice
+                                      ) percent
+FROM
+    (
+    SELECT
+        ifs.*,
+        CASE
+            WHEN
+                 (
+                  SELECT t.track_id FROM track t
+                  WHERE t.album_id = (
+                                      SELECT t2.album_id FROM track t2
+                                      WHERE t2.track_id = ifs.first_track_id
+                                     ) 
+                  EXCEPT 
+                  SELECT il2.track_id FROM invoice_line il2
+                  WHERE il2.invoice_id = ifs.invoice_id
+                 ) IS NULL
+             AND
+                 (
+                  SELECT il2.track_id FROM invoice_line il2
+                  WHERE il2.invoice_id = ifs.invoice_id
+                  EXCEPT 
+                  SELECT t.track_id FROM track t
+                  WHERE t.album_id = (
+                                      SELECT t2.album_id FROM track t2
+                                      WHERE t2.track_id = ifs.first_track_id
+                                     ) 
+                 ) IS NULL
+             THEN "yes"
+             ELSE "no"
+         END AS "album_purchase"
+     FROM invoice_first_track ifs
+    )
+GROUP BY album_purchase;
+'
+run_query(albums_vs_tracks)
+```
+
+Album purchaes account for 18.56% of total purchases so we should keep what we have currently
