@@ -1,0 +1,255 @@
+---
+title: "Guided Project: Investigating Fandango Movie Ratings"
+author: "Mobin Anandwala"
+date: "June 15, 2020"
+output: html_notebook
+---
+
+# Is Fandango still inflating movie ratings?
+In October 2015 Walt Hickey published an [article](https://fivethirtyeight.com/features/fandango-movies-ratings/) where he presented strong evidence to state that Fandango's rating system was biased and dishonest.  In this project we will determine if there is any change in Fandango's rating system after Hickey's analysis
+
+
+# Understanding the Data
+```{r}
+library(readr)
+
+urlfile <- "https://raw.githubusercontent.com/fivethirtyeight/data/master/fandango/fandango_score_comparison.csv"
+previous <- read_csv(urlfile)
+
+urlfile2 <- "https://raw.githubusercontent.com/mircealex/Movie_ratings_2016_17/master/movie_ratings_16_17.csv"
+after <- read_csv(urlfile2)
+```
+The ```previous``` and ```after``` dataframes are what we are using to analyze whether Fandango changed its rating system after Hickey's analysis
+
+We will save the data into csv files locally
+```{r}
+write_csv(previous, "previous.csv")
+write_csv(after, "after.csv")
+```
+
+```{r}
+head(previous)
+```
+
+We are only intrested in Fandango's ratings so we will need the Fandango_Stars, Fandango_Ratingvalue Fandango_votes and Fandango_Difference columns along with the FILM column from this dataframe
+
+```{r}
+head(after)
+```
+Since we are still focused on Fandango we will use the movie, fandango, and year columns to see if there is a difference
+
+```{r}
+library(dplyr)
+
+# Generate the previous dataframe
+fandango_previous <- previous %>% select(FILM, Fandango_Stars, Fandango_Ratingvalue, Fandango_votes, Fandango_Difference)
+
+# Generate the after dataframe
+fandango_after <- after %>% select(movie, year, fandango)
+```
+
+
+```{r}
+head(fandango_previous)
+```
+
+```{r}
+head(fandango_after)
+```
+
+The overall project goal is to see whether there has been a change in Fandango's rating system since Hickey's analysis
+
+The population that we are looking at are the ratings for all the movies on Fandango's website
+
+The datasets are previous to the analysis and one is after the analysis by Hickey
+
+The datasets are not random for the previous dataset from FiveThirtyEight the criteria are as follows:
+
+1. The movie had to have tickets on sale for it in 2015
+2. Had at least 30 fan reviews on Fandango as of August 24, 2015
+
+The dataset for after analysis has the following criteria
+
+1. The movie had to be released in 2016 or later
+2. The movie had to have a significant number of votes (this is not listed in the readme that the data is from)
+
+All movies did not have a chance to make it into these datasets and it is for the reason that there were specific questions that both dataset authors were asking.
+
+# Changing the goal of our Analysis
+
+Instead of collecting new data which is unavailable in this case prior to Hickey's analysis we will change the overall goal.  We will analyze Fandango ratings for popular movies in 2015 and Fandango ratings for popular movies in 2016.  We will then compare the difference which is a good method for continuing
+
+# Isolating the Samples we need
+
+We have our criteria for our goal ratings for popular movies in 2015 vs 2016
+
+For 2015 the movies had to have at least 30 fan ratings (this is the `fandango_previous` dataframe) but for the `fandango_after` we don't have a metric for popularity
+
+We can sample 10 random movies from the `fandango_after` dataframe to start
+```{r}
+set.seed(1)
+sample_n(fandango_after, size = 10)
+```
+
+Looking up a movie on Fandango only shows the score from RottenTomatoes and an Audience score furthermore, going to rotten tomatoes gets the fan ratings and we will use that to get the fan ratings in the dataset.  I manually went to each movie and entered the auidence ratings
+
+```{r}
+set.seed(1)
+sampled_reviews <- sample_n(fandango_after, size = 10)
+fan_ratings <- tibble(fan_ratings = c(5268, 7252, 7264, 12190, 30263, 281, 13680, 1210, 56832, 9203))
+bind_cols(sampled_reviews, fan_ratings)
+```
+
+All ten movies have well over 30 ratings but the issue is Rotten Tomatoes verified auidence may have a larger userbase then Fandango and also more time has passed allowing fans to submit reviews.  Even if we could access the star ratings from Fandango we don't have access to the fan ratings that Hickey did and see the trends that he saw
+
+However, the `fandango_previous` dataset does have fan reviews and we can double check if they meet the criteria
+
+```{r}
+sum(fandango_previous$Fandango_votes < 30)
+```
+
+We now need to see what year movies were releaed in both datasets
+```{r}
+unique(fandango_after$year)
+```
+
+So we do have some movies released in 2017 in the `fandango_after` dataset
+
+```{r}
+head(fandango_previous$FILM, n = 10)
+```
+We have a movie relased in 2014 and our analysis focuses on movies from 2015 and 2016 only
+
+```{r}
+library(stringr)
+fandango_previous <- fandango_previous %>% mutate(year = str_sub(FILM, -5, -2))
+```
+
+We will then examine frequency for the year column and then find movies released in 2015
+```{r}
+fandango_previous %>% group_by(year) %>% summarize(Freq = n())
+```
+
+```{r}
+# Verifying with table function
+table(fandango_previous$year)
+```
+
+We will now generate the dataframe containing only 2015 movies
+```{r}
+fandango_2015 <- fandango_previous %>% filter(year == 2015)
+fandango_2015 %>% group_by(year) %>% summarize(Freq = n())
+```
+```{r}
+table(fandango_2015$year)
+```
+
+Analyzing the other dataset
+```{r}
+head(fandango_after)
+```
+
+```{r}
+fandango_after %>% group_by(year) %>% summarize(Freq = n())
+```
+
+```{r}
+table(fandango_after$year)
+```
+
+We will now isolate the 2016 movies
+```{r}
+fandango_2016 <- fandango_after %>% filter(year == 2016)
+table(fandango_2016$year)
+```
+
+# Comparing Distribution Shapes between 2015 and 2016
+We will now plot the star rating in 2015 versus the fandango rating in 2016
+```{r}
+library(ggplot2)
+# 2015 dataframe
+ggplot(data = fandango_2015, 
+       aes(x = Fandango_Stars)) +
+  geom_density() +
+# 2016 dataframe
+  geom_density(data = fandango_2016,
+               aes(x = fandango), color = "blue") +
+  labs(title = "Comparing distribution shapes for Fandango's ratings\n(2015 vs 2015)",
+       x = "Stars",
+       y = "Density") +
+  scale_x_continuous(breaks = seq(0, 5, by = 0.5),
+                     limits = c(0,5))
+```
+
+Both distributions are left skewed meaning that fandango gives very high ratings and very high fan ratings (they sell tickets so that may have something to do with it).  In 2016 the ratings for high and very high (4.5 and 5 stars) are lower then 2016 indicating that there was a change in Fandango's rating
+
+# Comparing relative frequencies
+
+We will use percentages here as they give a better representation compared to proportions.
+
+```{r}
+fandango_2015 %>% group_by(Fandango_Stars) %>% summarize(Percentage = n() / nrow(fandango_2015) * 100)
+```
+```{r}
+fandango_2016 %>% group_by(fandango) %>% summarize(Percentage = n() / nrow(fandango_2016) * 100)
+```
+
+The minimum rating in 2016 was at 2.5 stars compared to 3.0 stars in 2015.  Also movies with 4.5 stars and 5 stars decreased in 2016 compared to 2015.  Finally some ratings went up in 2016 compared to 2015
+
+# Determining the direction of change
+```{r}
+library(tidyr)
+# Generating the mode function
+mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+summary_2015 <- fandango_2015 %>% summarize(year = "2015",
+                                            mean = mean(Fandango_Stars),
+                                            median = median(Fandango_Stars),
+                                            mode = mode(Fandango_Stars))
+summary_2016 <- fandango_2016 %>% summarize(year = "2016",
+                                            mean = mean(fandango),
+                                            median = median(fandango),
+                                            mode = mode(fandango))
+
+```
+
+```{r}
+head(summary_2015)
+```
+```{r}
+head(summary_2016)
+```
+```{r}
+# Generate summary dataframe
+summary_fandango <- bind_rows(summary_2015, summary_2016)
+head(summary_fandango)
+```
+
+We will generate a new dataframe that we can use to plot using `piviot_longer`
+```{r}
+summary_df <- summary_fandango %>% pivot_longer(-year, names_to = "statistic", values_to = "value")
+head(summary_df)
+```
+
+```{r}
+ggplot(data = summary_df, aes(x = statistic, y = value, fill = year)) + 
+  geom_bar(stat = "identity", position = "dodge") + 
+  labs(title = "Comparing Summary Statistics: 2015 vs. 2016",
+       x = "",
+       y = "Stars")
+```
+The mean is lower in 2016 by 0.2 compared to 2015.  The mode is also lower in 2016 compared to 2015 which makes sense given the shift in ratings in 2016 we can calculate the percentage change in mean
+```{r}
+means <- summary_df %>% filter(statistic == "mean")
+means <- means %>% summarize(change = (value[1] - value[2]) / value[1])
+means
+```
+There was a 4 percent drop in mean star ratings between 2015 and 2016
+
+# Conclusion
+
+The analysis shows that there is a slight difference between ratings from 2015 to 2016.
+We cannot be sure what caused it but it is likely that Fandango fixed the rating system after Hickey's analysis
