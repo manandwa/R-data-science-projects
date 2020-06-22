@@ -1,0 +1,297 @@
+---
+title: "Guided Project: Finding the Best Markests to Advertise in"
+author: "Mobin Anandwala"
+date: "June 22nd, 2020"
+output: html_notebook
+---
+
+# Finding the Best Markets to Advertise in
+
+We are working for an e-learning company that offers courses on programming.  Most of the courses offered are on web development and mobile development.
+Courses are also offered on other domains such as data science, game development etc.  We are looking to promote our product and would like to invest money in advertisements.  The project goal is to find the best markests to advertise in
+
+# Understanding the data
+We could organize surveys to find out where to advertise however, this is very costly.  It is better to explore existing data to see if we can find out where to advertise.
+
+The data used in this project is the freecodecamp's 2017 new coders survey found [here](https://www.freecodecamp.org/news/we-asked-20-000-people-who-they-are-and-how-theyre-learning-to-code-fff5d668969/) and the data is available from the following [Github](https://github.com/freeCodeCamp/2017-new-coder-survey/tree/master/clean-data).  The clean data is file that we need for this project
+
+```{r}
+library(readr)
+urlfile <- "https://raw.githubusercontent.com/freeCodeCamp/2017-new-coder-survey/master/clean-data/2017-fCC-New-Coders-Survey-Data.csv"
+fcc <- read_csv(urlfile)
+write_csv(fcc, "2017-fcc-New-Coders-Survey-Data.csv")
+```
+```{r}
+# See dimensions of dataset
+dim(fcc)
+head(fcc, 5)
+```
+
+# Checking for Sample Representativity
+
+Our company offers courses primarily on web and mobile development but we also cover many other areas, such as data science and game development.  We are concerned about *populations* interested in the subjects we teach.
+
+The questions we have are:
+
+* Where are these new coders located?
+* What are the locations with the greatest number of coders
+* How much money new coders are willing to spend on learning
+
+The `JobRoleInterest` column shows roles that participants are interested in working in.  If they have an interest in working in a particular role or roles then they have an interest in learning about those areas.
+
+```{r}
+#split-combine
+library(dplyr)
+fcc %>% group_by(JobRoleInterest) %>% summarise(freq = n()*100/nrow(fcc)) %>% arrange(desc(freq))
+```
+
+A quick scan of the table shows that most people are interested in the following (in descending order): 
+
+1. web development (Full-Stack/Front-End/Back-End)
+2. mobile development
+3. other domains
+
+The table also shows that many respondents are interested in more then one subject.  We will need to see who has interest in a single subject compared to those participants who have multiple interests and we can do this by splitting the `JobRoleInterest` string removing NA values and creating a frequency table
+
+```{r}
+library(tidyr)
+library(stringr)
+
+
+#using rowwise as default is columns
+split_interest <- fcc %>% select(JobRoleInterest) %>% drop_na() %>% rowwise %>% mutate(job_options = lengths(str_split(JobRoleInterest, ",")))
+split_interest <- unnest(split_interest, job_options)
+head(split_interest)
+```
+
+```{r}
+n_job_options <- split_interest %>% ungroup() %>% group_by(job_options) %>% summarise(freq = n()*100/nrow(split_interest)) %>% arrange(desc(freq))
+
+n_job_options
+```
+
+We needed to use the lengths (not length) function to count the number of times each job title showed up.  It looks only 31.65% of particpants have a clear idea of what they want to focus in.
+
+Our main focus is on web development and mobile development so let's check how many participants chose these areas
+```{r}
+web_mobile <- str_detect(fcc$JobRoleInterest, "Web Developer|Mobile Developer")
+freq_table_web_mobile <- table(web_mobile)
+freq_table_web_mobile <- freq_table_web_mobile * 100 / sum(freq_table_web_mobile)
+freq_table_web_mobile
+
+```
+
+We will generate a dataframe to graph this
+```{r}
+library(tibble)
+
+web_or_mobile_df <- tibble(x = c("Other Subject","Web or Mobile Development"), y = freq_table_web_mobile)
+
+library(ggplot2)
+
+ggplot(data = web_or_mobile_df, aes(x = x, y = y, fill = x)) +
+  geom_histogram(stat = "identity") +
+  xlab("Subjects") +
+  ylab("Percentage")
+```
+
+This shows that most of the participants in this survery (roughly 86%) are interested in web or mobile development.  This means that this sample is representitive of the population that we are interested in.
+
+# New Coders - Locations and Densities
+
+Now that we know that there is a greater focus on web and mobile development we need to find out the following:
+
+1. Where these new coders are located
+2. How many coders are there (density)
+
+We will use the `CountryLive` column as it is where people live (and where we can target ads)
+
+First let's clean our dataset to remove missing or incomplete data
+```{r}
+fcc_clean <- fcc %>% drop_na(JobRoleInterest)
+```
+
+We will then generate a table that shows percentage of where participants live
+```{r}
+# Create frequency table with absolute frequencies and percentages
+fcc_clean <- fcc_clean %>% drop_na(CountryLive) # remove NA values
+fcc_clean %>% group_by(CountryLive) %>% summarise(`Absolute frequency` = n(), `Percentage` = n()*100/nrow(fcc_clean)) %>% arrange(desc(Percentage))
+```
+
+45.70% of the respondants live in the US which makes this the most interesting market (We establish that each country is a separate market).  India is next however, they only have 7.72% which is not too far from the United Kingdom (4.61%) and Canada (3.80%).  
+
+Now we need to see who is willing to spend money on learning because if we advertise in a high density market but nobody is willing to pay then it is useless for us to advertise in that market
+
+# Spending Money for Learning
+We will use the `MoneyForLearning` column to see who is willing to pay for learning.  We will also focus on the following four countries
+
+1. United States
+2. India
+3. United Kingdom
+4. Canada
+
+These countries are selected because they are the highest on the frequency table we generated and also because our courses are in English and English is an offical language spoken in all four countries
+
+We will generate a new column that describes how much money a student has spent using the following formula `MoneyForLearning` / `MonthsProgramming` using `MonthsProgramming` column.  Some participants stated 0 months meaning that they just started so we will replace 0's with 1's so that we do not have a divide by 0 error
+
+```{r}
+#Replace 0's with 1's in MonthsProgramming
+fcc_clean <- fcc_clean %>% mutate(MonthsProgramming = replace(MonthsProgramming, MonthsProgramming == 0, 1))
+
+# Generate new column money_per_month
+fcc_clean <- fcc_clean %>% mutate(money_per_month = MoneyForLearning/MonthsProgramming)
+
+# Check how many NA values this column has
+fcc_clean %>% summarise(na_count = sum(is.na(money_per_month))) %>% pull(na_count)
+```
+Let's keep only non-NA values
+```{r}
+fcc_clean <- fcc_clean %>% drop_na(money_per_month)
+```
+
+Let's group the `money_per_month` column by `CountryLive` (the NA values from `CountryLive` have already been removed) making sure we have enough data
+```{r}
+fcc_clean %>% group_by(CountryLive) %>% summarise(freq = n()) %>% arrange(desc(freq)) %>% head()
+```
+
+This is good for now, let's find the average money per month spent by students per country.  We will use the mean here
+```{r}
+countries_money_mean <- fcc_clean %>% filter(CountryLive == "United States of America"|CountryLive == "India"|CountryLive == "United Kingdom"|CountryLive == "Canada") %>% group_by(CountryLive) %>% summarise(mean = mean(money_per_month)) %>% arrange(desc(mean))
+
+countries_money_mean
+```
+
+The results for the United Kingdom and Canada are surprising compared to India.  This can be due to either not having enough data from the United Kingdom or Cananda or we have outliers that are skewing the results
+
+# Dealing with Extreme Outliers
+
+We will generate a boxplot for the `money_per_month` column for the 4 countries that we are interested in
+```{r}
+top_four_fcc_countries <- fcc_clean %>% filter(CountryLive == "United States of America"|CountryLive == "India"|CountryLive == "United Kingdom"|CountryLive == "Canada")
+```
+
+We will then setup the new dataset featuring only the United States, India, United Kingdom and Canada to create a boxplot
+```{r}
+# If we need to remove elements from this dataset we will add a row index
+top_four_fcc_countries <- top_four_fcc_countries %>% mutate(index = row_number())
+
+# Generate the boxplot
+ggplot(data = top_four_fcc_countries, aes(x = CountryLive, y = money_per_month)) +
+  geom_boxplot() +
+  ggtitle("Money Spent Per Month Per Country\n(Distributions") +
+  xlab("Country") +
+  ylab("Money Per Month (Us Dollars)") +
+  theme_bw()
+```
+We can't tell whether there are extreme outliers for Canada, India or the United Kingdom but we can clearly see an issue with the United States.  Two participants spent more than \$50,000 per month for learning (which isn't unrealistic).  We'll set a new threshold removing values that are more than \$20,000 spent per month
+
+```{r}
+fcc_clean <- fcc_clean %>% filter(money_per_month < 20000)
+```
+
+We'll recalculate the means and the boxplots
+```{r}
+countries_money_mean <- fcc_clean %>% filter(CountryLive == "United States of America"|CountryLive == "India"|CountryLive == "United Kingdom"|CountryLive == "Canada") %>% group_by(CountryLive) %>% summarise(mean = mean(money_per_month)) %>% arrange(desc(mean))
+
+countries_money_mean
+```
+
+```{r}
+top_four_fcc_countries <- fcc_clean %>% filter(CountryLive == "United States of America"|CountryLive == "India"|CountryLive == "United Kingdom"|CountryLive == "Canada")
+
+# If we need to remove elements from this dataset we will add a row index
+top_four_fcc_countries <- top_four_fcc_countries %>% mutate(index = row_number())
+
+# Generate the boxplot
+ggplot(data = top_four_fcc_countries, aes(x = CountryLive, y = money_per_month)) +
+  geom_boxplot() +
+  ggtitle("Money Spent Per Month Per Country\n(Distributions") +
+  xlab("Country") +
+  ylab("Money Per Month (Us Dollars)") +
+  theme_bw()
+```
+We can see some outliers for India (over \$2500) but we don't know how good this data is
+
+```{r}
+india_outliers <- top_four_fcc_countries %>% filter(CountryLive == "India" & money_per_month > 2500)
+
+india_outliers
+```
+
+None of these participants attended bootcamps and but it seems that they may have included University Tuition as money spent on learning (the actual survey  question was:  _"Aside from university tuition, about how much money have you spent on learning to code so far (in US dollars)?"_). These particpants may have misunderstood the question so we can safely remove these rows
+
+```{r}
+top_four_fcc_countries <- top_four_fcc_countries %>% filter(!(index %in% india_outliers$index))
+```
+
+There are many outliers for the US and these are values over \$6000 so let's take a look at these outliers
+
+```{r}
+us_outliers <- top_four_fcc_countries %>% filter(CountryLive == "United States of America" & money_per_month > 6000)
+
+us_outliers
+```
+
+Out of 11 participants who have spent more than \$6000 per month 6 have attended bootcamps but only two have finished them.  This would explain the other four spending a lot of money on learning.  There are also participants who have only been programming for 3 months or less when the survey was completed so money spent per month is not valid for these participants because they spent a large amount of money on a bootcamp that was supposed to go for several months (and they probabily didn't spend anything after the survey).
+
+We will remove the rows of particpants that 
+
+* didn't attend bootcamps
+* Only have been programming for 3 months or less
+
+```{r}
+no_bootcamp_attended <- top_four_fcc_countries %>% filter(CountryLive == "United States of America" & money_per_month > 6000 & AttendedBootcamp == 0)
+
+top_four_fcc_countries <- top_four_fcc_countries %>% filter(!(index %in% no_bootcamp_attended$index))
+```
+
+```{r}
+program_less_than_three_months <- top_four_fcc_countries %>% filter(CountryLive == "United States of America" & money_per_month > 6000 & MonthsProgramming <= 3)
+
+top_four_fcc_countries <- top_four_fcc_countries %>% filter(!(index %in% program_less_than_three_months$index))
+```
+
+Checking the outlier for Canada we have a person who is spending more then \$5000 per month
+```{r}
+canada_outliers <- top_four_fcc_countries %>% filter(CountryLive == "Canada" & money_per_month >= 4500)
+
+canada_outliers
+```
+
+This person has only been programming for 2 months (similar to the US) so let's remove this row
+```{r}
+canada_outliers <- top_four_fcc_countries %>% filter(CountryLive == "Canada" & money_per_month >= 4500 & MonthsProgramming <= 3)
+
+top_four_fcc_countries <- top_four_fcc_countries %>% filter(!(index %in% canada_outliers))
+```
+
+With the outliers cleared out let's recalculate the mean and regenerate the boxplot
+```{r}
+countries_money_mean <- top_four_fcc_countries %>% group_by(CountryLive) %>% summarise(mean = mean(money_per_month)) %>% arrange(desc(mean))
+
+countries_money_mean
+```
+```{r}
+# Generate the boxplot
+ggplot(data = top_four_fcc_countries, aes(x = CountryLive, y = money_per_month)) +
+  geom_boxplot() +
+  ggtitle("Money Spent Per Month Per Country\n(Distributions") +
+  xlab("Country") +
+  ylab("Money Per Month (Us Dollars)") +
+  theme_bw()
+```
+# Chosing the Two Best Markets
+
+The first market that we should advertise in is the US.  We have lots of new coders and they are willing to pay for learning (\$143) we shouldn't advertise in the UK but there is a toss up between India and Canada
+
+We'll generate a table to guide our decision making
+```{r}
+top_four_fcc_countries %>% group_by(CountryLive) %>% summarise(freq = n()*100/nrow(top_four_fcc_countries)) %>% arrange(desc(freq)) %>% head()
+```
+
+```{r}
+# We need to verify that we have enough data
+top_four_fcc_countries %>% group_by(CountryLive) %>% summarise(freq = n()) %>% arrange(desc(freq)) %>% head()
+```
+
+This is not an easy decision as it may be more tempting to chose Canada there are strong arguments for choosing India due a larger potential customer base. More likely we will send this to the marketing team and they will use their knowledge to make a decision.
