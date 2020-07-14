@@ -1,0 +1,216 @@
+---
+title: "Guided Project: Predicting Condominium Sale Prices"
+author: "Mobin Anandwala"
+date: "July 14 2020"
+output: html_notebook
+---
+
+# How well does the size of a Condominium in New York City Explain Sale Price?
+
+This project will explore the following questions:
+
+1. How well does the size of a condominium (measured in gross square feet) explain or predict sale price across New York City as a whole? 
+2. How well does the size of a condominium explain or predict sale price for each individual borough?
+
+To answer question 1 we will explore property data for all five boroughs
+
+To answer question 2 we will build, analyze and compare linear models for each borough
+
+# Understanding the data
+
+The data that we are using from this project come from five separate excel files (one for each borough) and can be obtained from [here](https://www1.nyc.gov/site/finance/taxes/property-rolling-sales-data.page)
+
+The data is for June 2019-May 2020
+
+```{r}
+library(readxl)
+library(readr)
+library(stringr)
+library(dplyr)
+library(tidyr)
+library(magrittr)
+library(ggplot2)
+```
+
+```{r}
+# loading in the data from each excel file setting skip = 4 to avoid header rows
+queens <- read_excel("rollingsales_queens.xls", skip = 4)
+staten_island <- read_excel("rollingsales_statenisland.xls", skip = 4)
+brooklyn <- read_excel("rollingsales_brooklyn.xls", skip = 4)
+bronx <- read_excel("rollingsales_bronx.xls", skip = 4)
+manhattan <- read_excel("rollingsales_manhattan.xls", skip = 4)
+```
+
+Each Borough in New York has a specific number which we can get from the `BOROUGH` variable in each dataframe
+
+```{r}
+head(queens$BOROUGH, 1)
+head(staten_island$BOROUGH, 1)
+head(brooklyn$BOROUGH, 1)
+head(bronx$BOROUGH, 1)
+head(manhattan$BOROUGH, 1)
+```
+
+```{r}
+# The Borough numbers are as follows:
+# Manhattan = 1
+# Bronx = 2
+# Brooklyn = 3
+# Queens = 4
+# Staten Island = 5
+```
+
+We will now bind the five dataframes into a single dataframe
+```{r}
+NYC_property_sales <- bind_rows(manhattan, bronx, brooklyn, queens, staten_island)
+```
+
+Since we have a single dataframe with all NYC property sales, we don't need the 5 individual dataframes and can remove then using the `rm` function
+```{r}
+rm(brooklyn, bronx, manhattan, queens, staten_island)
+```
+
+Since we have the numbers for each borough we can replace them with the borough names so that it is more clear
+```{r}
+NYC_property_sales <- NYC_property_sales %>% mutate(BOROUGH = 
+                                                      case_when(BOROUGH == 1 ~ "Manhattan",
+                                                                BOROUGH == 2 ~ "Bronx",
+                                                                BOROUGH == 3 ~ "Brooklyn",
+                                                                BOROUGH == 4 ~ "Queens",
+                                                                BOROUGH == 5 ~ "Staten Island"))
+
+```
+
+Now that we have our data in a single dataframe with the `BOROUGH` column taken care of there are a few more steps to get this into the format that we need
+```{r}
+# Convert all column names to lowercase and replace spaces with underscores
+colnames(NYC_property_sales) %<>% str_replace_all("\\s", "_") %>% tolower()
+
+# Convert CAPTIALIZED case to Title case (the NEIGHBORHOOD,BUILDING CLASS CATEGORY and ADDRESS columns)
+NYC_property_sales <- NYC_property_sales %>% mutate(neighborhood = str_to_title(neighborhood)) %>% mutate(building_class_category = str_to_title(building_class_category)) %>% mutate(address = str_to_title(address))
+```
+
+```{r}
+# Drop the ease-ment column as it has no data and only select distinct values
+NYC_property_sales <- NYC_property_sales %>% select(-`ease-ment`) %>% distinct()
+
+# Filter out property exchanges between family members with a threshold of 10,000
+NYC_property_sales <- NYC_property_sales %>% filter(sale_price > 10000) %>%
+# Remove properties that have gross_square_feet of 0 
+filter(gross_square_feet > 0) %>%
+# Remove NA values in both sale_price and gross_square_feet
+drop_na(c(gross_square_feet, sale_price))
+
+# Arrange by borough and neighborhood
+NYC_property_sales <- NYC_property_sales %>% arrange(borough, neighborhood)
+
+```
+
+```{r eval=FALSE}
+# Save the dataframe to a csv file
+write_csv(NYC_property_sales, "NYC_property_sales.csv")
+```
+
+We now have a csv file that we can use from the original datasets
+
+# Explore Bivarate Relationships with Scatterplots
+
+We will focus our analysis on condominiums with elevators which according to this [document](https://www1.nyc.gov/assets/finance/jump/hlpbldgcode.html) are classified as R4
+
+```{r}
+NYC_Condos <- NYC_property_sales %>% filter(building_class_at_time_of_sale == "R4")
+```
+
+```{r}
+head(NYC_Condos)
+```
+
+
+We will generate a scatterplot using `sale_price` and `gross_square_feet` as those columns are what we are looking at to answer our questions
+```{r}
+ggplot(data = NYC_Condos,
+       aes(x = gross_square_feet, y = sale_price)) +
+  geom_point(aes(color = borough), alpha = 0.3) +
+  scale_y_continuous(labels = scales::comma, limits = c(0, 75000000)) +
+  xlim(0, 10000) +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme_minimal() +
+  labs(title = "Condominium Sale Prices in NYC Generally Increases with Size",
+       x = "Size (Gross Square Feet)",
+       y = "Sale Price (USD)")
+```
+
+```{r}
+ggplot(data = NYC_Condos,
+       aes(x = gross_square_feet, y = sale_price)) +
+  geom_point(aes(color = borough), alpha = 0.3) +
+  scale_y_continuous(labels = scales::comma, limits = c(0, 20000000)) +
+  xlim(0, 5000) +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme_minimal() +
+  labs(title = "Condominium Sale Prices in NYC Generally Increases with Size",
+       x = "Size (Gross Square Feet)",
+       y = "Sale Price (USD)")
+```
+
+We will use x and y scales specific to each borough and neighborhood
+```{r}
+ggplot(data = NYC_Condos,
+       aes(x = gross_square_feet, y = sale_price)) +
+  geom_point(alpha = 0.3) +
+  facet_wrap(~ borough, scales = "free", ncol = 2) +
+  scale_y_continuous(labels = scales::comma) +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme_minimal() +
+  labs(title = "Condominium Sale Prices in NYC Generally Increases with Size",
+       x = "Size (Gross Square Feet)",
+       y = "Sale Price (USD)")
+```
+
+Somehow the gross_square_feet went missing in data cleaning for condos which is weird as this is the latest data
+
+# Outliers and Data Integrity Issues
+```{r}
+# Get the highest to lowest sale price
+NYC_Condos %>% arrange(desc(sale_price)) %>% head()
+```
+
+The highest priced listing was 220 Cenral Park South Ph3 with a square footage of 9,817 (data is found from [here](https://www.cityrealty.com/nyc/MidtownWest/-220-centralparksouth/apartment-PH73/sold/A274304))
+
+```{r}
+# Making a copy
+NYC_Condos_Original <- NYC_Condos
+```
+
+```{r}
+# Removing 165 East 66th street
+NYC_Condos <- NYC_Condos %>% filter(address != "165 East 66th St, Resi")
+```
+
+Let's look at the highest sale in Brooklyn
+```{r}
+brooklyn_condos <- NYC_Condos %>% filter(borough == "Brooklyn") %>% arrange(desc(sale_price))
+head(brooklyn_condos)
+```
+
+There is a single unit with a sales price of \$20,301,000 in the Brooklyn Heights neighborhood
+
+Let's get the multiunit sales 
+```{r}
+multi_unit_sales <- NYC_Condos %>% group_by(sale_price, sale_date) %>% filter(n() >= 3) %>% arrange(desc(sale_price))
+```
+
+We will then drop those values in `NYC_Condos` that match in `multi_unit_sales`
+
+```{r}
+NYC_Condos <- NYC_Condos %>% anti_join(multi_unit_sales)
+```
+
+# Linear Regression Model for Boroughs in New York City Combined
+
+We will now generate the linear models
+```{r}
+NYC_condos_lm <- lm(sale_price ~ gross_square_feet, data = NYC_Condos)
+summary(NYC_condos_lm)
+```
+
