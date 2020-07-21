@@ -1,0 +1,149 @@
+---
+title: "Hockey Graphs Tutorial: An Introduction to R with Hockey Data"
+author: "Mobin Anandwala"
+date: "July 21, 2020"
+output: html_notebook
+---
+
+# Introduction
+
+This is a tutorial using R analyzing hockey data.  The dataset was created using four game ids (unique numbers that are specific to each NHL game).  The tutorial is found [here](https://hockey-graphs.com/2019/12/11/an-introduction-to-r-with-hockey-data/).  The dataset was scraped on July 21st 2020 and saved into a csv file using a separate script called `game_scraper.R` which was created using the github associated with the tutorial
+
+# Loading libraries and data
+```{r}
+library(tidyverse)
+
+PHI_tutorial_data <- read_csv("PHI_tutorial_data.csv")
+```
+
+# Data Analysis
+
+Let's look at the total goals scored through out these four games.  Goals may be scored at even strength (5 vs 5) power play (5 vs 4 or 4 vs 5)
+
+## Goals
+
+```{r}
+goals <- PHI_tutorial_data %>% filter(event_type == "GOAL")
+```
+
+### 5 on 5 goals
+```{r}
+goals_5v5 <- PHI_tutorial_data %>% filter(event_type == "GOAL" & game_strength_state == "5v5")
+```
+
+### Power play goals (5v4 or 4v5)
+
+```{r}
+goals_special_teams <- PHI_tutorial_data %>% filter(event_type == "GOAL" & (game_strength_state == "5v4" | game_strength_state == "4v5"))
+```
+
+### All goals (5v5 and powerplay)
+```{r}
+goals_5v5_ST <- PHI_tutorial_data %>% filter(event_type == "GOAL" & game_strength_state %in% c("5v5", "5v4", "4v5"))
+```
+
+# Using Data to Answer questions
+We want to know which player scored which goal in these four games so we don't need all the data in the `goals` dataframe we only need the following:
+
+* game_id
+* game_date
+* event_type
+* event_detail (describes the type of shot used to score)
+* event_team
+* event_player_1 (the player scoring the goal)
+
+```{r}
+goals_small <- goals %>% select(game_id, game_date, event_type, event_detail, event_team, event_player_1)
+```
+
+Cleaning up the `goals` dataframe and removing event_description
+```{r}
+goals_drop <- goals %>% select(-c(event_description))
+
+# Reorder the goals dataframe using select to have the score at the beginning
+goals <- goals %>% select(home_score, away_score, everything())
+```
+
+```{r}
+goal_variable <- PHI_tutorial_data %>% mutate(goal = ifelse(event_type == "GOAL", 1, 0))
+```
+
+Verifying that the column was added
+```{r}
+sum(goal_variable$goal)
+```
+
+Checking the count using the `count` function to see if the condition worked (using the event_type column)
+```{r}
+count(goal_variable, event_type)
+```
+
+## Goals by game
+```{r}
+goals_by_game <- goal_variable %>% group_by(game_id) %>% summarise(total_goals = sum(goal)) 
+```
+
+We want to add the team to each game
+```{r}
+goals_by_game_team <- goal_variable %>% group_by(game_id, event_team) %>% summarise(goals = sum(goal))
+goals_by_game_team
+```
+
+We have NA values in this dataframe which doesn't help us so let's remove them
+```{r}
+goals_by_game_team <- goal_variable %>% filter(!is.na(event_team)) %>% group_by(game_id, event_team) %>% summarise(goals = sum(goal))
+goals_by_game_team
+```
+
+```{r}
+goals_by_game_team <- goals_by_game_team %>% arrange(desc(goals))
+goals_by_game_team
+```
+
+# Graphs
+
+We will now graph the amount spent in each zone
+```{r}
+ggplot(data = PHI_tutorial_data) +
+  geom_bar(aes(x = event_zone))
+```
+
+Adding fills by event_zone
+```{r}
+ggplot(data = PHI_tutorial_data) +
+  geom_bar(aes(x = event_zone, fill = event_zone))
+```
+
+Tweaking the graph
+```{r}
+ggplot(data = PHI_tutorial_data) +
+  geom_bar(aes(x = event_zone, fill = event_zone)) +
+  labs(y = "Number of Events") +
+  labs(x = "zone")
+```
+
+Let's filter this graph so that we are only focused on where the players are for each of these four games
+```{r}
+zone_time <- PHI_tutorial_data %>% filter(!is.na(event_zone))
+ggplot(data = zone_time) +
+  geom_bar(aes(x = event_zone, fill = event_zone)) +
+  labs(y = "Number of Events") +
+  labs(x = "zone")
+```
+
+Also lets see how the teams did during these four games
+```{r}
+team_game_goals <- goals_by_game_team %>% group_by(event_team) %>% summarise(total_team_goals = sum(goals))
+team_game_goals
+```
+
+```{r}
+ggplot(data = team_game_goals) +
+  geom_col(aes(x = event_team, y = total_team_goals, fill = event_team)) +
+  labs(x = "Team Name") +
+  labs(y = "Total Goals by Team") +
+  labs(title = "Total goals by team over four games") +
+  scale_fill_discrete(name = "Team\nName")
+```
+
+The flyers scored the most goals over four games
