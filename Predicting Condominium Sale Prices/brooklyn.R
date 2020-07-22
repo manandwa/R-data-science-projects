@@ -17,3 +17,6 @@ unique(test_overall$`BUILDING CLASS AT TIME OF SALE`)
 gsf <- unique(test_overall$`GROSS SQUARE FEET`)
 gsf_no_na <- brooklyn %>% filter(`GROSS SQUARE FEET` != "NA")
 unique(gsf_no_na$`BUILDING CLASS AT TIME OF SALE`)
+
+test_R_code <- brooklyn %>% filter(`BUILDING CLASS AT TIME OF SALE` == "R5") 
+unique(test_R_code$`GROSS SQUARE FEET`)
