@@ -1,0 +1,203 @@
+---
+title: "Guided Project: Investigating COVID-19 Virus Trends"
+author: "Mobin Anandwala"
+date: "July 17, 2020"
+output: html_notebook
+---
+
+# Introduction
+
+This project will be looking at COVID-19 virus trends.  Dataset is from [here](https://www.kaggle.com/lin0li/covid19testing) gathered from January 20th 2020 to June 1st 2020.
+
+# Understanding the Data
+
+We will now load the `tidyverse` library which contains the packages we need to load and understand the data
+```{r eval=FALSE}
+library(tidyverse)
+```
+
+
+```{r}
+covid_df <- read_csv("covid19.csv")
+```
+
+```{r}
+# Get dimensions names
+dim(covid_df)
+
+# Get column names
+vector_cols <- colnames(covid_df)
+
+# Display vector columns
+vector_cols
+```
+
+The dataset contains `10903` rows and `14` columns.  The `vector_cols` vector is a `r typeof(vector_cols)` vector
+
+```{r}
+# Display the first few rows
+head(covid_df)
+```
+
+```{r}
+# Get summary of the dataframe using glimpse
+glimpse(covid_df)
+```
+
+glimpse does the same thing as the first three functions
+
+# Isolating the rows we need
+We will now filter the `Province_State` column to keep only the value `"All States"` this way we have country only data and then remove the column `Province_state`
+```{r}
+covid_df_all_states <- covid_df %>% filter(Province_State == "All States") %>% select(-Province_State)
+```
+
+```{r}
+glimpse(covid_df_all_states)
+```
+
+We can remove the `Province_State` column because we have values for all states here
+
+# Isolating the columns we need
+Here the original columns from the dataset
+
+1. `Date`: Date
+2. `Continent_Name`: Continent names
+3. `Two_Letter_Country_Code`: Country codes
+4. `Country_Region`: Country names
+5. `Province_State`: States/province names; value is `All States` when state/provincial level data is not available
+6. `positive`: Cumulative number of positive cases reported.
+7. `active`: Number of actively cases on that **day**.
+8. `hospitalized`: Cumulative number of hospitalized cases reported.
+9. `hospitalizedCurr`: Number of actively hospitalized cases on that **day**.
+10. `recovered`: Cumulative number of recovered cases reported.
+11. `death`: Cumulative number of deaths reported.
+12. `total_tested`: Cumulative number of tests conducted.
+13. `daily_tested`: Number of tests conducted on the **day**; if daily data is unavailable, daily tested is averaged across number of days in between.
+14. `daily_positive`: Number of positive cases reported on the **day**; if daily data is unavailable, daily positive is averaged across number of days in.
+
+
+We want to select columns that show the daily occurance
+```{r}
+covid_df_all_states_daily <- covid_df_all_states %>% select(Date, Country_Region, active, hospitalizedCurr, daily_tested, daily_positive)
+
+head(covid_df_all_states_daily)
+```
+
+# Extracting the top ten tested cases by country
+
+```{r}
+covid_df_all_states_daily_sum <- covid_df_all_states_daily %>% group_by(Country_Region) %>% 
+  summarise(tested = sum(daily_tested),
+            positive = sum(daily_positive),
+            active = sum(active),
+            hospitalized = sum(hospitalizedCurr)) %>%
+  arrange(desc(tested))
+
+covid_df_all_states_daily_sum
+```
+
+```{r}
+# Taking the top 10
+covid_top_10 <- head(covid_df_all_states_daily_sum, 10)
+
+covid_top_10
+```
+
+# Identifying the Highest Positive Against Tested Cases
+
+We will now identify the highest positve cases compared to tested cases using the `covid_top_10` dataframe
+
+```{r}
+countries <- covid_top_10$Country_Region
+tested_cases <- covid_top_10$tested
+positive_cases <- covid_top_10$positive
+active_cases <- covid_top_10$active
+hospitalized_cases <- covid_top_10$hospitalized
+```
+
+Assigning country names to each of the cases
+```{r}
+names(tested_cases) <- countries
+names(positive_cases) <- countries
+names(active_cases) <- countries
+names(hospitalized_cases) <- countries
+```
+
+We'll now look at the `positive_cases` vector
+```{r}
+positive_cases
+```
+
+```{r}
+# statistics for positive_cases
+sum(positive_cases) # total
+mean(positive_cases) # average
+percent_positive_cases <- positive_cases/sum(positive_cases)
+percent_positive_cases
+```
+
+Seeing positive cases as a percentage of tested cases
+```{r}
+positive_cases/tested_cases
+```
+
+```{r}
+(positive_cases/tested_cases) * 100
+```
+
+The top three are the United Kingdom, United States and Turkey (decimals are from rounding down)
+```{r}
+positive_tested_top_3 <- c("United Kingdom" = 0.11, "United States" = 0.10, "Turkey" = 0.08)
+positive_tested_top_3
+```
+
+# Keeping relevant information
+Now that we have the top 3 countries we don't want to lose the other information that we had
+```{r}
+united_kingdom <- c(0.11, 1473672, 166909, 0, 0)
+united_states <- c(0.10, 17282363, 1877179, 0 ,0)
+turkey <- c(0.08, 2031192, 163941, 2980960, 0)
+
+# Create the matrix
+covid_mat <- rbind(united_kingdom, united_states, turkey)
+
+# Rename columns
+colnames(covid_mat) <- c("Ratio", "tested", "positive", "active", "hospitalized")
+
+covid_mat
+```
+
+# Putting it all together
+
+Now we will answer the following question using our matrix and vectors and also create lists of everything that we have
+
+The question is Which countries have had the highest number of positive cases against the number of tests?
+```{r}
+question <- "Which countries have had the highest number of positive cases against the number of tests?"
+answer <- c("Positive tested cases" = positive_tested_top_3)
+```
+
+Generating our lists of 
+
+* dataframes
+* Matrix
+* vectors
+
+```{r}
+data <- list(original = covid_df,
+             all_states = covid_df_all_states,
+             daily = covid_df_all_states_daily,
+             top_10 = covid_top_10)
+
+matrices <- list(covid_mat)
+
+vectors <- list(vector_cols, countries)
+
+data_structures_list <- list("dataframes" = data, "matrix" = matrices, "vectors" = vectors)
+
+covid_analysis_list <- list(question, answer, data_structures_list)
+
+covid_analysis_list[[2]]
+```
+
